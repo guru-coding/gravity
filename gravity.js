@@ -80,6 +80,7 @@ buffer.width = 800
 buffer.height = 400
 var bufferContext = buffer.getContext("2d")
 
+var eventList = []
 var motionList = []
 var presentationList = []
 
@@ -89,7 +90,15 @@ var model = function(currentTimestamp) {
     var delta = currentTimestamp - previousTimestamp
     previousTimestamp = currentTimestamp
 
-    var limit = motionList.length
+    var limit = eventList.length
+    for (var i = 0; i < limit; i++) {
+        var event = eventList.shift()
+        if (event(delta)) {
+            eventList.push(event)
+        }
+    }
+
+    limit = motionList.length
     for (var i = 0; i < limit; i++) {
         var motion = motionList.shift()
         if (motion(delta)) {
@@ -165,23 +174,121 @@ var RectangularPresentation = function(entity, width, height, style) {
 
 ////////////////////////////////////////////////////////////////
 
-var camera = new Entity()
+var CameraSetup = function() {
+    return function(delta) {
+        // GLOBAL!
+        camera = new Entity()
 
-var background = new Entity()
-background.transform.dx = 400.0
-background.transform.dy = 200.0
-presentationList.push(new RectangularPresentation(background, 800.0, 400.0, "cornsilk"))
+        // TODO: motion
 
-var dot = new Entity()
-dot.transform.dx = 100.0
-dot.transform.dy = 100.0
-motionList.push(new Translation(dot))
-motionList.push(new Rotation(dot))
-motionList.push(new AcceleratedMotion(dot, 20.0, 0.0, 0.0))
-presentationList.push(new RectangularPresentation(dot, 10.0, 10.0, "maroon"))
-presentationList.push(new TransformPresentation(dot))
+        return false
+    }
+}
 
-var wall = new Entity()
-wall.transform.dx = 600.0
-wall.transform.dy = 200.0
-presentationList.push(new RectangularPresentation(wall, 10.0, 100.0, "maroon"))
+var BackgroundSetup = function() {
+    return function(delta) {
+        var background = new Entity()
+        background.transform.dx = 400.0
+        background.transform.dy = 200.0
+
+        eventList.push(new BackgroundAppearance(background))
+        // TODO: events
+
+        return false
+    }
+}
+
+var DotSetup = function() {
+    return function(delta) {
+        var dot = new Entity()
+        dot.transform.dx = 100.0
+        dot.transform.dy = 100.0
+
+        eventList.push(new DotAppearance(dot))
+        eventList.push(new DotFreeFall(dot))
+        eventList.push(new DotControl(dot, view))
+        // TODO: events
+
+        return false
+    }
+}
+
+var WallSetup = function() {
+    return function(delta) {
+        var wall = new Entity()
+        wall.transform.dx = 600.0
+        wall.transform.dy = 200.0
+
+        eventList.push(new WallAppearance(wall))
+        // TODO: events
+
+        return false
+    }
+}
+
+var BackgroundAppearance = function(background) {
+    return function(delta) {
+        presentationList.push(new RectangularPresentation(background, 800.0, 400.0, "cornsilk"))
+
+        return false
+    }
+}
+
+var DotAppearance = function(dot) {
+    return function(delta) {
+        motionList.push(new Translation(dot))
+        motionList.push(new Rotation(dot))
+        motionList.push(new AcceleratedMotion(dot, 20.0, 0.0, 0.0))
+        presentationList.push(new RectangularPresentation(dot, 10.0, 10.0, "maroon"))
+        presentationList.push(new TransformPresentation(dot))
+
+        return false
+    }
+}
+
+var DotFreeFall = function(dot) {
+    var time = 0.0
+
+    return function(delta) {
+        time += delta
+
+        if (time < 3000.0) {
+            return true
+        }
+
+        motionList.push(new AcceleratedMotion(dot, -20.0, 30.0, 0.0))
+
+        return false
+    }
+}
+
+var DotControl = function(dot, canvas) {
+    var time = 0.0
+
+    return function(delta) {
+        time += delta
+
+        if (time < 3000.0) {
+            return true
+        }
+
+        canvas.onclick = function() {
+            motionList.push(new AcceleratedMotion(dot, 0.0, -1000.0, 100.0))
+        }
+
+        return false
+    }
+}
+
+var WallAppearance = function(wall) {
+    return function(delta) {
+        presentationList.push(new RectangularPresentation(wall, 10.0, 100.0, "maroon"))
+
+        return false
+    }
+}
+
+eventList.push(new CameraSetup())
+eventList.push(new BackgroundSetup())
+eventList.push(new DotSetup())
+eventList.push(new WallSetup())
