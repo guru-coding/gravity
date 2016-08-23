@@ -23,10 +23,18 @@ var Entity = function() {
     this.acceleration = new Acceleration()
 }
 
+var State = function(presence) {
+    this.presence = presence || true
+}
+
 ////////////////////////////////////////////////////////////////
 
-var Translation = function(entity) {
+var Translation = function(entity, state) {
     return function(delta) {
+        if (!state.presence) {
+            return false
+        }
+
         entity.transform.dx += entity.velocity.dx * delta / 1000.0
         entity.transform.dy += entity.velocity.dy * delta / 1000.0
 
@@ -34,8 +42,12 @@ var Translation = function(entity) {
     }
 }
 
-var Rotation = function(entity) {
+var Rotation = function(entity, state) {
     return function(delta) {
+        if (!state.presence) {
+            return false
+        }
+
         var length = Math.sqrt(entity.velocity.dx * entity.velocity.dx + entity.velocity.dy * entity.velocity.dy)
         entity.transform.m11 = entity.velocity.dx / length
         entity.transform.m22 = entity.transform.m11
@@ -46,24 +58,48 @@ var Rotation = function(entity) {
     }
 }
 
-var AcceleratedMotion = function(entity, dx, dy, dt) {
-    var time = 0.0
+var AcceleratedMotion = function(entity, dx, dy, state) {
     entity.acceleration.dx += dx
     entity.acceleration.dy += dy
 
     return function(delta) {
-        time += delta
-
-        if (dt > 0.0 && time >= dt) {
+        if (!state.presence) {
             entity.acceleration.dx -= dx
             entity.acceleration.dy -= dy
-
             return false
         }
 
         entity.velocity.dx += dx * delta / 1000.0
         entity.velocity.dy += dy * delta / 1000.0
 
+        return true
+    }
+}
+
+////////////////////////////////////////////////////////////////
+
+var Point = function(x, y) {
+    this.x = x || 0.0
+    this.y = y || 0.0
+}
+
+var Place = function(entity, projection, world) {
+
+}
+
+var Collide = function(entity, world) {
+
+}
+
+var Shape = function(entity, image) {
+    return function(world, delta) {
+        var projection = image
+        for (var i = 0; i < projection.length; i++) {
+            projection[i].x += entity.transform.dx
+            projection[i].y += entity.transform.dy
+        }
+        Place(entity, projection, world)
+        
         return true
     }
 }
@@ -82,6 +118,8 @@ var bufferContext = buffer.getContext("2d")
 
 var eventList = []
 var motionList = []
+var shapeList = []
+var collisionList = []
 var presentationList = []
 
 var previousTimestamp = performance.now()
@@ -106,6 +144,22 @@ var model = function(currentTimestamp) {
         }
     }
 
+    limit = shapeList.length
+    for (var i = 0; i < limit; i++) {
+        var shape = shapeList.shift()
+        if (shape(world, delta)) {
+            shapeList.push(shape)
+        }
+    }
+
+    limit = collisionList.length
+    for (var i = 0; i < limit; i++) {
+        var collision = collisionList.shift()
+        if (collision(world, delta)) {
+            collisionList.push(collision)
+        }
+    }
+
     limit = presentationList.length
     for (var i = 0; i < limit; i++) {
         var presentation = presentationList.shift()
@@ -123,8 +177,12 @@ model(previousTimestamp)
 
 ////////////////////////////////////////////////////////////////
 
-var TransformPresentation = function(entity) {
+var TransformPresentation = function(entity, state) {
     return function(camera, context, delta) {
+        if (!state.presence) {
+            return false
+        }
+
         context.setTransform(1.0, 0.0, 0.0, 1.0, 20.0, 20.0)
         context.fillText(
             "position: (" + Math.floor(entity.transform.dx) + ", " + Math.floor(entity.transform.dy) + ")",
@@ -146,8 +204,12 @@ var TransformPresentation = function(entity) {
     }
 }
 
-var RectangularPresentation = function(entity, width, height, style) {
+var RectangularPresentation = function(entity, width, height, style, state) {
     return function(camera, context, delta) {
+        if (!state.presence) {
+            return false
+        }
+
         context.setTransform(
             entity.transform.m11,
             entity.transform.m12,
@@ -174,44 +236,212 @@ var RectangularPresentation = function(entity, width, height, style) {
 
 ////////////////////////////////////////////////////////////////
 
-var CameraSetup = function() {
+var WorldAppearance = function() {
     return function(delta) {
         // GLOBAL!
-        camera = new Entity()
+        world = {}
 
-        // TODO: motion
+        eventList.push(new WorldLife())
+        // TODO: events
 
         return false
     }
 }
 
-var BackgroundSetup = function() {
+var WorldLife = function() {
+    var time = 0.0
+
+    return function(delta) {
+        time += delta
+        if (time > 10000.0) {
+            world = undefined
+            return false
+        }
+
+        // TODO: cases
+
+        return true
+    }
+}
+
+////////////////////////////////////////////////////////////////
+
+var CameraAppearance = function() {
+    return function(delta) {
+        // GLOBAL!
+        camera = new Entity()
+
+        // TODO: events
+
+        return false
+    }
+}
+
+////////////////////////////////////////////////////////////////
+
+var BackgroundAppearance = function() {
     return function(delta) {
         var background = new Entity()
         background.transform.dx = 400.0
         background.transform.dy = 200.0
 
-        eventList.push(new BackgroundAppearance(background))
+        var life = new State()
+
+        presentationList.push(new RectangularPresentation(background, 800.0, 400.0, "cornsilk", life))
+
+        eventList.push(new BackgroundLife(background, life))
         // TODO: events
 
         return false
     }
 }
 
-var DotSetup = function() {
+var BackgroundLife = function(background, life) {
+    return function(delta) {
+        if (!world) {
+            life.presence = false
+        }
+
+        // TODO: cases
+
+        return life.presence
+    }
+}
+
+////////////////////////////////////////////////////////////////
+
+var DotAppearance = function() {
     return function(delta) {
         var dot = new Entity()
         dot.transform.dx = 100.0
         dot.transform.dy = 100.0
 
-        eventList.push(new DotAppearance(dot))
-        eventList.push(new DotFreeFall(dot))
-        eventList.push(new DotControl(dot, view))
-        // TODO: events
+        var life = new State()
+        var acceleration = new State()
+
+        motionList.push(new Translation(dot, life))
+        motionList.push(new Rotation(dot, life))
+        motionList.push(new AcceleratedMotion(dot, 20.0, 0.0, acceleration))
+
+        presentationList.push(new RectangularPresentation(dot, 10.0, 10.0, "maroon", life))
+        presentationList.push(new TransformPresentation(dot, life))
+
+        eventList.push(new DotLife(dot, life))
+        eventList.push(new DotAcceleration(dot, acceleration, life))
+        eventList.push(new DotFreeFall(dot, life))
+        eventList.push(new DotControl(dot, view, life))
+        eventList.push(new DotRelease(dot, view, life))
 
         return false
     }
 }
+
+var DotLife = function(dot, life) {
+    return function(delta) {
+        if (!world) {
+            life.presence = false
+        }
+
+        // TODO: cases
+
+        return life.presence
+    }
+}
+
+var DotAcceleration = function(dot, acceleration, life) {
+    var time = 0.0
+
+    return function(delta) {
+        if (!life.presence) {
+            acceleration.presence = false
+            return false
+        }
+
+        time += delta
+        if (time > 3000.0) {
+            acceleration.presence = false
+            return false
+        }
+
+        return true
+    }
+}
+
+var DotFreeFall = function(dot, life) {
+    var time = 0.0
+
+    return function(delta) {
+        if (!life.presence) {
+            return false
+        }
+
+        time += delta
+        if (time > 3000.0) {
+            motionList.push(new AcceleratedMotion(dot, 0.0, 30.0, life))
+            return false
+        }
+
+        return true
+    }
+}
+
+var DotControl = function(dot, canvas, life) {
+    var time = 0.0
+
+    return function(delta) {
+        if (!life.presence) {
+            return false
+        }
+
+        time += delta
+        if (time > 3000.0) {
+            canvas.addEventListener("click", DotJump(dot, life))
+            return false
+        }
+
+        return true
+    }
+}
+
+var DotRelease = function(dot, canvas, life) {
+    return function(delta) {
+        if (!life.presence) {
+            canvas.removeEventListener("click", DotJump(dot, life))
+            return false
+        }
+
+        return true
+    }
+}
+
+var DotJump = function(dot, life) {
+    return function() {
+        var jump = new State()
+        motionList.push(new AcceleratedMotion(dot, 0.0, -1000.0, jump))
+        eventList.push(new DotJumpEnd(dot, jump, life))
+    }
+}
+
+var DotJumpEnd = function(dot, jump, life) {
+    var time = 0.0
+
+    return function(delta) {
+        if (!life.presence) {
+            jump.presence = false
+            return false
+        }
+
+        time += delta
+        if (time > 100.0) {
+            jump.presence = false
+            return false
+        }
+
+        return true
+    }
+}
+
+////////////////////////////////////////////////////////////////
 
 var WallSetup = function() {
     return function(delta) {
@@ -226,60 +456,6 @@ var WallSetup = function() {
     }
 }
 
-var BackgroundAppearance = function(background) {
-    return function(delta) {
-        presentationList.push(new RectangularPresentation(background, 800.0, 400.0, "cornsilk"))
-
-        return false
-    }
-}
-
-var DotAppearance = function(dot) {
-    return function(delta) {
-        motionList.push(new Translation(dot))
-        motionList.push(new Rotation(dot))
-        motionList.push(new AcceleratedMotion(dot, 20.0, 0.0, 0.0))
-        presentationList.push(new RectangularPresentation(dot, 10.0, 10.0, "maroon"))
-        presentationList.push(new TransformPresentation(dot))
-
-        return false
-    }
-}
-
-var DotFreeFall = function(dot) {
-    var time = 0.0
-
-    return function(delta) {
-        time += delta
-
-        if (time < 3000.0) {
-            return true
-        }
-
-        motionList.push(new AcceleratedMotion(dot, -20.0, 30.0, 0.0))
-
-        return false
-    }
-}
-
-var DotControl = function(dot, canvas) {
-    var time = 0.0
-
-    return function(delta) {
-        time += delta
-
-        if (time < 3000.0) {
-            return true
-        }
-
-        canvas.onclick = function() {
-            motionList.push(new AcceleratedMotion(dot, 0.0, -1000.0, 100.0))
-        }
-
-        return false
-    }
-}
-
 var WallAppearance = function(wall) {
     return function(delta) {
         presentationList.push(new RectangularPresentation(wall, 10.0, 100.0, "maroon"))
@@ -288,7 +464,10 @@ var WallAppearance = function(wall) {
     }
 }
 
-eventList.push(new CameraSetup())
-eventList.push(new BackgroundSetup())
-eventList.push(new DotSetup())
-eventList.push(new WallSetup())
+////////////////////////////////////////////////////////////////
+
+eventList.push(new WorldAppearance())
+eventList.push(new CameraAppearance())
+eventList.push(new BackgroundAppearance())
+eventList.push(new DotAppearance())
+//eventList.push(new WallSetup())
