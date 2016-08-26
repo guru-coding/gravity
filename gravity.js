@@ -443,24 +443,32 @@ var DotJumpEnd = function(dot, jump, life) {
 
 ////////////////////////////////////////////////////////////////
 
-var WallSetup = function() {
+var WallAppearance = function() {
     return function(delta) {
         var wall = new Entity()
         wall.transform.dx = 600.0
         wall.transform.dy = 200.0
 
-        eventList.push(new WallAppearance(wall))
+        var life = new State()
+
+        presentationList.push(new RectangularPresentation(wall, 10.0, 100.0, "maroon", life))
+
+        eventList.push(new WallLife(wall, life))
         // TODO: events
 
         return false
     }
 }
 
-var WallAppearance = function(wall) {
+var WallLife = function(wall, life) {
     return function(delta) {
-        presentationList.push(new RectangularPresentation(wall, 10.0, 100.0, "maroon"))
+        if (!world) {
+            life.presence = false
+        }
 
-        return false
+        // TODO: cases
+
+        return life.presence
     }
 }
 
@@ -470,4 +478,4 @@ eventList.push(new WorldAppearance())
 eventList.push(new CameraAppearance())
 eventList.push(new BackgroundAppearance())
 eventList.push(new DotAppearance())
-//eventList.push(new WallSetup())
+eventList.push(new WallAppearance())
